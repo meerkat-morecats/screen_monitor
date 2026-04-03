@@ -9,6 +9,7 @@ use crate::core::rules::RulesSettings;
 use crate::window;
 
 pub const RUNTIME_SNAPSHOT_EVENT: &str = "screen-monitor:runtime-snapshot-updated";
+pub const TRAY_ICON_ID: &str = "main-tray";
 
 #[derive(Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -37,6 +38,7 @@ pub struct RuntimeController {
 
 struct RuntimeInner {
     snapshot: RuntimeSnapshot,
+    interval_seconds: u32,
     overlay_triggered: bool,
 }
 
@@ -51,6 +53,7 @@ impl RuntimeController {
         Self {
             inner: Arc::new(Mutex::new(RuntimeInner {
                 snapshot,
+                interval_seconds,
                 overlay_triggered: false,
             })),
         }
@@ -70,9 +73,21 @@ impl RuntimeController {
             .lock()
             .expect("runtime controller mutex poisoned");
         let interval_seconds = normalize_interval_seconds(rules.interval_minutes);
+        guard.interval_seconds = interval_seconds;
         guard.snapshot.phase = "focus".into();
         guard.snapshot.seconds_remaining = interval_seconds;
         guard.overlay_triggered = false;
+    }
+
+    pub fn resume_after_break(&self) -> RuntimeSnapshot {
+        let mut guard = self
+            .inner
+            .lock()
+            .expect("runtime controller mutex poisoned");
+        guard.snapshot.phase = "focus".into();
+        guard.snapshot.seconds_remaining = guard.interval_seconds;
+        guard.overlay_triggered = false;
+        guard.snapshot.clone()
     }
 
     fn tick(&self) -> TickResult {
@@ -132,9 +147,22 @@ pub fn spawn_runtime_loop(app: AppHandle, controller: RuntimeController) {
 }
 
 pub fn emit_runtime_snapshot(app: &AppHandle, snapshot: &RuntimeSnapshot) {
+    update_tray_title(app, snapshot.seconds_remaining);
     let _ = app.emit(RUNTIME_SNAPSHOT_EVENT, snapshot);
 }
 
 fn normalize_interval_seconds(interval_minutes: u32) -> u32 {
     interval_minutes.max(1) * 60
+}
+
+fn update_tray_title(app: &AppHandle, seconds_remaining: u32) {
+    if let Some(tray) = app.tray_by_id(TRAY_ICON_ID) {
+        let _ = tray.set_title(Some(format_duration(seconds_remaining)));
+    }
+}
+
+fn format_duration(total_seconds: u32) -> String {
+    let minutes = total_seconds / 60;
+    let seconds = total_seconds % 60;
+    format!("{minutes:02}:{seconds:02}")
 }

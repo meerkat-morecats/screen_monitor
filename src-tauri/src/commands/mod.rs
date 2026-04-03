@@ -10,8 +10,14 @@ pub fn show_overlay(app: AppHandle) -> Result<(), String> {
 }
 
 #[tauri::command]
-pub fn hide_overlay(app: AppHandle) -> Result<(), String> {
-    window::hide_overlay(&app).map_err(|error| error.to_string())
+pub fn hide_overlay(
+    app: AppHandle,
+    runtime_controller: State<'_, RuntimeController>,
+) -> Result<(), String> {
+    window::hide_overlay(&app).map_err(|error| error.to_string())?;
+    let snapshot = runtime_controller.resume_after_break();
+    runtime::emit_runtime_snapshot(&app, &snapshot);
+    Ok(())
 }
 
 #[tauri::command]
